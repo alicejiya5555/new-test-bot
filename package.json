@@ -1,15 +1,19 @@
 {
-  "name": "coinglass-telegram-bot",
+  "name": "bybit-telegram-indicators-bot",
   "version": "1.0.0",
-  "description": "Telegram bot for BTC, ETH, LINK using CoinGlass API",
+  "description": "Telegram bot that fetches Bybit spot data and computes indicators (MACD, RSI, Bollinger, EMA 9/21, OBV, volume profile) for ETH/LINK/BTC across multiple timeframes.",
   "main": "bot.js",
   "scripts": {
-    "start": "node bot.js"
+    "start": "node bot.js",
+    "dev": "nodemon bot.js"
   },
   "dependencies": {
-    "axios": "^1.6.0",
-    "telegraf": "^4.14.0",
-    "dotenv": "^16.3.1",
-    "express": "^4.18.2"
+    "axios": "^1.7.2",
+    "dayjs": "^1.11.13",
+    "express": "^4.19.2",
+    "node-telegram-bot-api": "^0.64.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.0"
   }
 }
