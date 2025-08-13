@@ -1,0 +1,14 @@
+{
+  "name": "coinglass-telegram-bot",
+  "version": "1.0.0",
+  "description": "Telegram bot for BTC, ETH, LINK using CoinGlass API",
+  "main": "bot.js",
+  "scripts": {
+    "start": "node bot.js"
+  },
+  "dependencies": {
+    "axios": "^1.6.0",
+    "telegraf": "^4.14.0",
+    "dotenv": "^16.3.1"
+  }
+}
