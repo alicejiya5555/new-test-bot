@@ -1,138 +1,134 @@
 const { Telegraf } = require('telegraf');
 const axios = require('axios');
-const ti = require('technicalindicators');
+const technical = require('technicalindicators');
 const moment = require('moment-timezone');
 
-const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN || '7655482876:AAH1-wgF3Tku7Ce6E5C0VZ0kHu_3BpHqz_I';
+const TELEGRAM_TOKEN = '7655482876:AAH1-wgF3Tku7Ce6E5C0VZ0kHu_3BpHqz_I';
 const APP_TZ = 'Asia/Phnom_Penh';
 const BYBIT_BASE = 'https://api.bybit.com';
+const CATEGORY = 'spot';
 
 const bot = new Telegraf(TELEGRAM_TOKEN);
 
-// Assets and intervals
-const SYMBOLS = { eth: 'ETHUSDT', btc: 'BTCUSDT', link: 'LINKUSDT' };
-const INTERVALS = { '5m': '5', '15m': '15', '1h': '60', '4h': '240', '12h': '720', '24h': 'D' };
+// Supported commands
+const supportedAssets = ['ETH', 'BTC', 'LINK'];
+const supportedTimeframes = ['5m', '15m', '1h', '4h', '24h'];
 
-// Fetch candles from Bybit
+// Helper: Convert Telegram command to Bybit interval
+function parseCommand(cmd) {
+    const match = cmd.match(/\/([a-zA-Z]+)(\d+[mh])/);
+    if (!match) return null;
+    const asset = match[1].toUpperCase();
+    const tf = match[2];
+    return { asset, tf };
+}
+
+// Fetch historical candles from Bybit
 async function getCandles(symbol, interval) {
-  try {
-    const res = await axios.get(`${BYBIT_BASE}/spot/quote/v1/kline`, {
-      params: { symbol, interval, limit: 100 }
-    });
-    if (!res.data.result || !res.data.result.length) return [];
-    return res.data.result.map(c => ({
-      open: parseFloat(c.open),
-      high: parseFloat(c.high),
-      low: parseFloat(c.low),
-      close: parseFloat(c.close),
-      volume: parseFloat(c.volume)
-    }));
-  } catch (err) {
-    console.error('Error fetching candles:', err.message);
-    return [];
-  }
+    try {
+        const res = await axios.get(`${BYBIT_BASE}/v2/public/kline/list`, {
+            params: {
+                symbol: symbol + 'USDT',
+                interval: interval,
+                limit: 100
+            }
+        });
+        return res.data.result;
+    } catch (err) {
+        console.error('Error fetching candles:', err.message);
+        return [];
+    }
 }
 
-// Fetch 24h ticker
-async function getTicker(symbol) {
-  try {
-    const res = await axios.get(`${BYBIT_BASE}/spot/quote/v1/ticker/24hr`, {
-      params: { symbol }
-    });
-    return res.data.result && res.data.result[0] ? res.data.result[0] : {};
-  } catch (err) {
-    console.error('Error fetching ticker:', err.message);
-    return {};
-  }
+// Calculate indicators
+function calculateIndicators(candles) {
+    const closes = candles.map(c => parseFloat(c.close));
+    const highs = candles.map(c => parseFloat(c.high));
+    const lows = candles.map(c => parseFloat(c.low));
+    const volumes = candles.map(c => parseFloat(c.volume));
+
+    // OBV
+    const obv = technical.OBV.calculate({ close: closes, volume: volumes });
+    const ema9 = technical.EMA.calculate({ period: 9, values: closes }).slice(-1)[0];
+    const ema21 = technical.EMA.calculate({ period: 21, values: closes }).slice(-1)[0];
+    const rsi = technical.RSI.calculate({ period: 14, values: closes }).slice(-1)[0];
+    const bb = technical.BollingerBands.calculate({
+        period: 20,
+        values: closes,
+        stdDev: 2
+    }).slice(-1)[0];
+
+    return {
+        obv: obv.slice(-1)[0],
+        ema9,
+        ema21,
+        rsi,
+        bbUpper: bb.upper,
+        bbMiddle: bb.middle,
+        bbLower: bb.lower
+    };
 }
 
-// Indicators
-function calcEMA(values, period) { return ti.EMA.calculate({ period, values }); }
-function calcMACD(values) { return ti.MACD.calculate({ values, fastPeriod: 12, slowPeriod: 26, signalPeriod: 9, SimpleMAOscillator: false, SimpleMASignal: false }); }
-function calcRSI(values) { return ti.RSI.calculate({ period: 14, values }); }
-function calcBB(values) { return ti.BollingerBands.calculate({ period: 20, stdDev: 2, values }); }
-function calcOBV(closes, volumes) { return ti.OBV.calculate({ close: closes, volume: volumes }); }
+// Compute trend signal
+function trendSignal(price, ema9, ema21) {
+    if (price > ema9 && ema9 > ema21) return 'Bullish 🟢';
+    if (price < ema9 && ema9 < ema21) return 'Bearish 🔴';
+    return 'Sideways 🟡';
+}
 
-// Build message
-async function buildMessage(symbolKey, timeframeKey) {
-  const symbol = SYMBOLS[symbolKey];
-  const interval = INTERVALS[timeframeKey];
-  if (!symbol || !interval) return 'Invalid symbol or timeframe!';
+bot.start((ctx) => ctx.reply('Welcome! Use commands like /eth1h or /link15m'));
 
-  const candles = await getCandles(symbol, interval);
-  if (!candles.length) return 'No candle data found!';
+bot.on('text', async (ctx) => {
+    const command = ctx.message.text.toLowerCase();
+    const parsed = parseCommand(command);
+    if (!parsed) return ctx.reply('Invalid command format! Example: /eth1h');
 
-  const ticker = await getTicker(symbol);
-  const closes = candles.map(c => c.close);
-  const volumes = candles.map(c => c.volume);
+    const { asset, tf } = parsed;
+    if (!supportedAssets.includes(asset)) return ctx.reply('Asset not supported.');
+    if (!supportedTimeframes.includes(tf)) return ctx.reply('Timeframe not supported.');
 
-  const ema9 = calcEMA(closes, 9).slice(-1)[0];
-  const ema21 = calcEMA(closes, 21).slice(-1)[0];
-  const macd = calcMACD(closes).slice(-1)[0];
-  const rsi = calcRSI(closes).slice(-1)[0];
-  const bb = calcBB(closes).slice(-1)[0];
-  const obv = calcOBV(closes, volumes).slice(-1)[0];
+    const candles = await getCandles(asset, tf);
+    if (!candles || candles.length === 0) return ctx.reply('No candle data found!');
 
-  let trend = 'Neutral ⚪️';
-  let action = 'Wait 🟡';
-  if (ema9 > ema21 && rsi > 50) { trend = 'Bullish 🟢'; action = 'Enter 🟢'; }
-  else if (ema9 < ema21 && rsi < 50) { trend = 'Bearish 🔴'; action = 'Exit 🔴'; }
+    const lastCandle = candles[candles.length - 1];
+    const indicators = calculateIndicators(candles);
 
-  return `
-*${symbol.toUpperCase()} | Timeframe: ${timeframeKey.toUpperCase()}*
+    const trend = trendSignal(parseFloat(lastCandle.close), indicators.ema9, indicators.ema21);
 
-💰 Price: ${ticker.lastPrice || 'N/A'}
-📈 24h High: ${ticker.highPrice || 'N/A'}
-📉 24h Low: ${ticker.lowPrice || 'N/A'}
-🔁 Change: ${ticker.priceChangePercent || 'N/A'}%
-🧮 Volume: ${ticker.volume || 'N/A'}
-💵 Quote Volume: ${ticker.quoteVolume || 'N/A'}
-🔓 Open Price: ${ticker.openPrice || 'N/A'}
-⏰ Close Time: ${moment().tz(APP_TZ).format('YYYY-MM-DD HH:mm:ss')}
+    const message = `
+*${asset} - ${tf}*
 
-📊 On-Balance Volume (OBV):
-OBV: ${obv || 'N/A'}
+💰 Price: ${lastCandle.close}
+📈 24h High: ${Math.max(...candles.map(c => parseFloat(c.high)))}
+📉 24h Low: ${Math.min(...candles.map(c => parseFloat(c.low)))}
+🔁 Change: ${((lastCandle.close - candles[0].open) / candles[0].open * 100).toFixed(2)}%
+🧮 Volume: ${lastCandle.volume}
+💵 Quote Volume: ${(lastCandle.volume * lastCandle.close).toFixed(2)}
+🔓 Open Price: ${lastCandle.open}
+⏰ Close Time: ${moment(lastCandle.close_time * 1000).tz(APP_TZ).format('YYYY-MM-DD HH:mm:ss')}
 
-Momentum Strength (MACD):
-📉 MACD: ${macd ? macd.MACD.toFixed(4) : 'N/A'}
-Signal: ${macd ? macd.signal.toFixed(4) : 'N/A'}
-Hist: ${macd ? macd.histogram.toFixed(4) : 'N/A'}
+📊 On-Balance Volume (OBV): ${indicators.obv}
 
 📈 EMA:
-Asset Price: ${closes.slice(-1)[0].toFixed(4)}
-(9): ${ema9.toFixed(4)}
-(21): ${ema21.toFixed(4)}
+Asset Price: ${lastCandle.close}
+(9): ${indicators.ema9.toFixed(4)}
+(21): ${indicators.ema21.toFixed(4)}
 
-⚡️ RSI(14): ${rsi ? rsi.toFixed(2) : 'N/A'}
+⚡️ RSI(14): ${indicators.rsi.toFixed(2)}
 
 🎯 Bollinger(20,2):
-Upper: ${bb ? bb.upper.toFixed(4) : 'N/A'}
-Middle: ${bb ? bb.middle.toFixed(4) : 'N/A'}
-Lower: ${bb ? bb.lower.toFixed(4) : 'N/A'}
+Upper: ${indicators.bbUpper.toFixed(4)}
+Middle: ${indicators.bbMiddle.toFixed(4)}
+Lower: ${indicators.bbLower.toFixed(4)}
 
 Overall Trend: ${trend}
-Time for: ${action}
-  `;
-}
+`;
 
-// Handle commands
-bot.on('text', async (ctx) => {
-  const input = ctx.message.text.slice(1).toLowerCase();
-  const match = input.match(/^([a-z]+)(\d+[mhd])$/);
-  if (!match) return ctx.reply('Invalid command! Example: /eth1h, /link15m');
-
-  const symbolKey = match[1];
-  const timeframeKey = match[2];
-
-  try {
-    const message = await buildMessage(symbolKey, timeframeKey);
     ctx.replyWithMarkdown(message);
-  } catch (err) {
-    console.error('Error:', err.message);
-    ctx.reply('Error fetching data. Please try again later.');
-  }
 });
 
-// Start bot on Render port or default 3000
-const PORT = process.env.PORT || 3000;
-bot.launch().then(() => console.log(`Bot started ✅ on port ${PORT}`));
+// Open port
+bot.launch().then(() => console.log('Bot running on port 3000'));
+
+process.once('SIGINT', () => bot.stop('SIGINT'));
+process.once('SIGTERM', () => bot.stop('SIGTERM'));
