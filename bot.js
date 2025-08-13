@@ -3,7 +3,7 @@ const axios = require('axios');
 const technical = require('technicalindicators');
 const moment = require('moment-timezone');
 
-const TELEGRAM_TOKEN = '7655482876:AAH1-wgF3Tku7Ce6E5C0VZ0kHu_3BpHqz_I';
+const TELEGRAM_TOKEN = 'YOUR_TELEGRAM_TOKEN'; // Replace with your valid token
 const APP_TZ = 'Asia/Phnom_Penh';
 const BYBIT_SPOT_KLINE = 'https://api.bybit.com/v5/market/kline';
 
@@ -55,7 +55,7 @@ async function getCandles(symbol, interval) {
 
 // Calculate indicators safely
 function calculateIndicators(candles) {
-  if (candles.length < 2) return null; // Not enough data
+  if (candles.length < 2) return null;
   const closes = candles.map(c => c.close);
   const volumes = candles.map(c => c.volume);
 
@@ -85,7 +85,7 @@ function trendSignal(price, ema9, ema21) {
 // Start command
 bot.start(ctx => ctx.reply('Welcome! Use commands like /eth1h or /link15m'));
 
-// Handle Telegram commands
+// Handle Telegram text commands
 bot.on('text', async ctx => {
   const parsed = parseCommand(ctx.message.text.toLowerCase());
   if (!parsed) return ctx.reply('Invalid command format! Example: /eth1h');
@@ -135,8 +135,8 @@ Overall Trend: ${trend}
   ctx.replyWithMarkdown(message);
 });
 
-// Launch bot
-bot.launch().then(() => console.log('Bot running'));
+// Launch bot using polling mode (no open port needed)
+bot.launch({ polling: true }).then(() => console.log('Bot running with polling mode'));
 
 // Graceful shutdown
 process.once('SIGINT', () => bot.stop('SIGINT'));
