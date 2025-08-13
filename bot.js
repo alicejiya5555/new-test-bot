@@ -3,21 +3,21 @@ const axios = require('axios');
 const technical = require('technicalindicators');
 const moment = require('moment-timezone');
 
-const TELEGRAM_TOKEN = '7655482876:AAH1-wgF3Tku7Ce6E5C0VZ0kHu_3BpHqz_I'; // Replace with your valid token
+const TELEGRAM_TOKEN = '7655482876:AAH1-wgF3Tku7Ce6E5C0VZ0kHu_3BpHqz_I'; // Replace with your BotFather token
 const APP_TZ = 'Asia/Phnom_Penh';
-const BYBIT_SPOT_KLINE = 'https://api.bybit.com/v5/market/kline';
+const BYBIT_API_URL = 'https://api.bybit.com/v5/market/kline';
 
-const bot = new Telegraf(TELEGRAM_TOKEN);
-
-// Supported assets and timeframe mapping
+// Supported assets and mapping
 const supportedAssets = ['ETH', 'BTC', 'LINK'];
 const telegramToBybitInterval = {
   '5m': '5',
   '15m': '15',
   '1h': '60',
   '4h': '240',
-  '24h': 'D'
+  '1d': 'D'
 };
+
+const bot = new Telegraf(TELEGRAM_TOKEN);
 
 // Parse Telegram command like /eth1h
 function parseCommand(cmd) {
@@ -26,21 +26,25 @@ function parseCommand(cmd) {
   return { asset: match[1].toUpperCase(), tf: match[2] };
 }
 
-// Fetch candles from Bybit v5 Spot API
+// Fetch candles from Bybit public API
 async function getCandles(symbol, interval) {
   try {
-    const res = await axios.get(BYBIT_SPOT_KLINE, {
+    const res = await axios.get(BYBIT_API_URL, {
       params: {
+        category: 'spot',
         symbol: symbol + 'USDT',
         interval: interval,
-        category: 'spot',
         limit: 200
       }
     });
-    const list = res.data?.result?.list;
+    if (res.data.retCode !== 0) {
+      console.error('Bybit API error:', res.data.retMsg);
+      return [];
+    }
+    const list = res.data.result.list;
     if (!list || list.length === 0) return [];
     return list.map(c => ({
-      open_time: c.start,
+      open_time: parseInt(c.start),
       open: parseFloat(c.open),
       high: parseFloat(c.high),
       low: parseFloat(c.low),
@@ -56,6 +60,7 @@ async function getCandles(symbol, interval) {
 // Calculate indicators safely
 function calculateIndicators(candles) {
   if (candles.length < 2) return null;
+
   const closes = candles.map(c => c.close);
   const volumes = candles.map(c => c.volume);
 
@@ -83,12 +88,12 @@ function trendSignal(price, ema9, ema21) {
 }
 
 // Start command
-bot.start(ctx => ctx.reply('Welcome! Use commands like /eth1h or /link15m'));
+bot.start(ctx => ctx.reply('Welcome! Use commands like /eth1h, /link15m, /btc4h'));
 
 // Handle Telegram text commands
 bot.on('text', async ctx => {
   const parsed = parseCommand(ctx.message.text.toLowerCase());
-  if (!parsed) return ctx.reply('Invalid command format! Example: /eth1h');
+  if (!parsed) return ctx.reply('Invalid command! Example: /eth1h');
 
   const { asset, tf } = parsed;
   if (!supportedAssets.includes(asset)) return ctx.reply('Asset not supported.');
@@ -135,7 +140,7 @@ Overall Trend: ${trend}
   ctx.replyWithMarkdown(message);
 });
 
-// Launch bot using polling mode (no open port needed)
+// Launch bot with polling mode
 bot.launch({ polling: true }).then(() => console.log('Bot running with polling mode'));
 
 // Graceful shutdown
