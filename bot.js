@@ -3,47 +3,43 @@ const axios = require('axios');
 const ti = require('technicalindicators');
 const moment = require('moment-timezone');
 
-const TELEGRAM_TOKEN = '7655482876:AAH1-wgF3Tku7Ce6E5C0VZ0kHu_3BpHqz_I';
+const TELEGRAM_TOKEN = '7655482876:AAG8yrDYcuU_WRL-HxePppwNglmvgJeCfhM';
 const APP_TZ = 'Asia/Phnom_Penh';
 const BYBIT_BASE = 'https://api.bybit.com';
 
 const bot = new Telegraf(TELEGRAM_TOKEN);
 
-// Map user commands to Bybit symbols and intervals
+// Supported assets
 const SYMBOLS = {
   eth: 'ETHUSDT',
   btc: 'BTCUSDT',
   link: 'LINKUSDT'
 };
 
-// Map user commands to Bybit intervals
+// Supported intervals
 const INTERVALS = {
   '5m': '5',
   '15m': '15',
   '1h': '60',
   '4h': '240',
   '12h': '720',
-  '1d': 'D'
+  '24h': 'D'
 };
 
-// Helper: Fetch OHLCV candles
+// Helper: fetch OHLCV candles
 async function getCandles(symbol, interval) {
   try {
     const response = await axios.get(`${BYBIT_BASE}/spot/quote/v1/kline`, {
-      params: {
-        symbol: symbol,
-        interval: interval,
-        limit: 100
-      }
+      params: { symbol, interval, limit: 100 }
     });
     return response.data.result || [];
   } catch (err) {
-    console.error(err);
+    console.error('Error fetching candles:', err.message);
     return [];
   }
 }
 
-// Helper: Fetch 24h ticker info
+// Helper: fetch 24h ticker info
 async function getTicker(symbol) {
   try {
     const response = await axios.get(`${BYBIT_BASE}/spot/quote/v1/ticker/24hr`, {
@@ -51,17 +47,16 @@ async function getTicker(symbol) {
     });
     return response.data.result[0] || {};
   } catch (err) {
-    console.error(err);
+    console.error('Error fetching ticker:', err.message);
     return {};
   }
 }
 
-// Calculate EMA
+// Technical indicators
 function calculateEMA(values, period) {
   return ti.EMA.calculate({ period, values });
 }
 
-// Calculate MACD
 function calculateMACD(values) {
   return ti.MACD.calculate({
     values,
@@ -73,27 +68,24 @@ function calculateMACD(values) {
   });
 }
 
-// Calculate RSI
 function calculateRSI(values) {
   return ti.RSI.calculate({ period: 14, values });
 }
 
-// Calculate Bollinger Bands
 function calculateBollinger(values) {
   return ti.BollingerBands.calculate({ period: 20, stdDev: 2, values });
 }
 
-// Calculate OBV
 function calculateOBV(closes, volumes) {
   return ti.OBV.calculate({ close: closes, volume: volumes });
 }
 
-// Build response message
+// Build Telegram message
 async function buildMessage(symbolKey, timeframeKey) {
-  const symbol = SYMBOLS[symbolKey.toLowerCase()];
-  const interval = INTERVALS[timeframeKey.toLowerCase()];
+  const symbol = SYMBOLS[symbolKey];
+  const interval = INTERVALS[timeframeKey];
 
-  if (!symbol || !interval) return 'Invalid command or timeframe!';
+  if (!symbol || !interval) return 'Invalid symbol or timeframe!';
 
   const candles = await getCandles(symbol, interval);
   if (!candles.length) return 'No candle data found!';
@@ -109,13 +101,20 @@ async function buildMessage(symbolKey, timeframeKey) {
   const bb = calculateBollinger(closes).slice(-1)[0];
   const obv = calculateOBV(closes, volumes).slice(-1)[0];
 
-  // Trend logic (simplified)
+  // Determine overall trend and action
   let trend = 'Neutral ⚪️';
-  if (ema9 > ema21 && rsi > 50) trend = 'Bullish 🟢';
-  else if (ema9 < ema21 && rsi < 50) trend = 'Bearish 🔴';
+  let action = 'Wait 🟡';
+
+  if (ema9 > ema21 && rsi > 50) {
+    trend = 'Bullish 🟢';
+    action = 'Enter 🟢';
+  } else if (ema9 < ema21 && rsi < 50) {
+    trend = 'Bearish 🔴';
+    action = 'Exit 🔴';
+  }
 
   return `
-*${symbol} | Timeframe: ${timeframeKey.toUpperCase()}*
+*${symbol.toUpperCase()} | Timeframe: ${timeframeKey.toUpperCase()}*
 
 💰 Price: ${ticker.lastPrice || 'N/A'}
 📈 24h High: ${ticker.highPrice || 'N/A'}
@@ -147,17 +146,30 @@ Middle: ${bb ? bb.middle.toFixed(4) : 'N/A'}
 Lower: ${bb ? bb.lower.toFixed(4) : 'N/A'}
 
 Overall Trend: ${trend}
-Time for: ${trend.includes('Bullish') ? 'Enter 🟢' : trend.includes('Bearish') ? 'Exit 🔴' : 'Wait 🟡'}
+Time for: ${action}
   `;
 }
 
-// Register commands dynamically
-bot.command(['eth5m','eth15m','eth1h','btc5m','btc15m','btc1h','link5m','link15m','link1h'], async (ctx) => {
-  const [cmd] = ctx.message.text.slice(1).split(/(\d+[mhd])/); // split symbol and timeframe
-  const symbolKey = cmd.match(/[a-zA-Z]+/)[0];
-  const timeframeKey = cmd.match(/\d+[mhd]/)[0];
-  const message = await buildMessage(symbolKey, timeframeKey);
-  ctx.replyWithMarkdown(message);
+// Handle commands dynamically
+bot.on('text', async (ctx) => {
+  const input = ctx.message.text.slice(1).toLowerCase(); // remove "/" and lowercase
+  const match = input.match(/^([a-z]+)(\d+[mhd])$/);
+
+  if (!match) {
+    return ctx.reply('Invalid command format! Example: /eth1h, /link15m');
+  }
+
+  const symbolKey = match[1];
+  const timeframeKey = match[2];
+
+  try {
+    const message = await buildMessage(symbolKey, timeframeKey);
+    ctx.replyWithMarkdown(message);
+  } catch (err) {
+    console.error('Error building message:', err.message);
+    ctx.reply('Error fetching data. Please try again later.');
+  }
 });
 
-bot.launch().then(() => console.log('Bot started on port 3000'));
+// Start bot
+bot.launch().then(() => console.log('Bot started ✅'));
