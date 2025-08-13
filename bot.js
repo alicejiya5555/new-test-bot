@@ -3,7 +3,7 @@ const axios = require('axios');
 const ti = require('technicalindicators');
 const moment = require('moment-timezone');
 
-const TELEGRAM_TOKEN = '7655482876:AAG8yrDYcuU_WRL-HxePppwNglmvgJeCfhM';
+const TELEGRAM_TOKEN = '7655482876:AAH1-wgF3Tku7Ce6E5C0VZ0kHu_3BpHqz_I';
 const APP_TZ = 'Asia/Phnom_Penh';
 const BYBIT_BASE = 'https://api.bybit.com';
 
