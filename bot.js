@@ -3,7 +3,7 @@ const axios = require('axios');
 const technical = require('technicalindicators');
 const moment = require('moment-timezone');
 
-const TELEGRAM_TOKEN = 'YOUR_TELEGRAM_TOKEN'; // Replace with your valid token
+const TELEGRAM_TOKEN = '7655482876:AAH1-wgF3Tku7Ce6E5C0VZ0kHu_3BpHqz_I'; // Replace with your valid token
 const APP_TZ = 'Asia/Phnom_Penh';
 const BYBIT_SPOT_KLINE = 'https://api.bybit.com/v5/market/kline';
 
