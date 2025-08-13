@@ -1,238 +1,163 @@
-const TelegramBot = require('node-telegram-bot-api');
+const { Telegraf } = require('telegraf');
 const axios = require('axios');
-const dayjs = require('dayjs');
-const utc = require('dayjs/plugin/utc');
-const tz = require('dayjs/plugin/timezone');
-
-dayjs.extend(utc);
-dayjs.extend(tz);
+const ti = require('technicalindicators');
+const moment = require('moment-timezone');
 
 const TELEGRAM_TOKEN = '7655482876:AAG8yrDYcuU_WRL-HxePppwNglmvgJeCfhM';
 const APP_TZ = 'Asia/Phnom_Penh';
 const BYBIT_BASE = 'https://api.bybit.com';
-const CATEGORY = 'spot';
 
-const bot = new TelegramBot(TELEGRAM_TOKEN, { polling: true });
+const bot = new Telegraf(TELEGRAM_TOKEN);
 
-// Coins & timeframes
-const COINS = { eth: 'ETHUSDT', link: 'LINKUSDT', btc: 'BTCUSDT' };
-const TIMEFRAMES = { '5m':'5','15m':'15','1h':'60','4h':'240','12h':'720','24h':'D' };
+// Map user commands to Bybit symbols and intervals
+const SYMBOLS = {
+  eth: 'ETHUSDT',
+  btc: 'BTCUSDT',
+  link: 'LINKUSDT'
+};
 
-// Utilities
-const fmt = (n,d=2)=> n==null||isNaN(n)?'-':Number(n).toLocaleString(undefined,{maximumFractionDigits:d});
-const fmtFixed = (n,d=2)=> n==null||isNaN(n)?'-':Number(n).toFixed(d);
+// Map user commands to Bybit intervals
+const INTERVALS = {
+  '5m': '5',
+  '15m': '15',
+  '1h': '60',
+  '4h': '240',
+  '12h': '720',
+  '1d': 'D'
+};
 
-// Parse command
-function parseCommand(text){
-    const m=text.toLowerCase().match(/^\/(eth|link|btc)(\d+)(m|h|d)$/);
-    if(!m) return null;
-    const coin=m[1], num=m[2], suf=m[3];
-    const tfKey=`${num}${suf}`;
-    const interval=TIMEFRAMES[tfKey];
-    if(!interval) return null;
-    return { symbol: COINS[coin], coin: coin.toUpperCase(), tfLabel: tfKey, interval };
+// Helper: Fetch OHLCV candles
+async function getCandles(symbol, interval) {
+  try {
+    const response = await axios.get(`${BYBIT_BASE}/spot/quote/v1/kline`, {
+      params: {
+        symbol: symbol,
+        interval: interval,
+        limit: 100
+      }
+    });
+    return response.data.result || [];
+  } catch (err) {
+    console.error(err);
+    return [];
+  }
 }
 
-// ===================== Indicators =====================
-function ema(values, period){
-    const k = 2/(period+1);
-    let out=[], prev;
-    for(let i=0;i<values.length;i++){
-        const v=values[i];
-        prev=i===0?v:v*k + prev*(1-k);
-        out.push(prev);
-    }
-    return out;
+// Helper: Fetch 24h ticker info
+async function getTicker(symbol) {
+  try {
+    const response = await axios.get(`${BYBIT_BASE}/spot/quote/v1/ticker/24hr`, {
+      params: { symbol }
+    });
+    return response.data.result[0] || {};
+  } catch (err) {
+    console.error(err);
+    return {};
+  }
 }
 
-function sma(values, period){
-    let out=[], sum=0;
-    for(let i=0;i<values.length;i++){
-        sum+=values[i];
-        if(i>=period) sum-=values[i-period];
-        out.push(i>=period-1 ? sum/period : null);
-    }
-    return out;
+// Calculate EMA
+function calculateEMA(values, period) {
+  return ti.EMA.calculate({ period, values });
 }
 
-function stdev(values, period){
-    let out=[], win=[], sum=0;
-    for(let i=0;i<values.length;i++){
-        win.push(values[i]);
-        sum+=values[i];
-        if(win.length>period) sum-=win.shift();
-        if(win.length===period){
-            const mean=sum/period;
-            const variance=win.reduce((a,b)=>a+Math.pow(b-mean,2),0)/period;
-            out.push(Math.sqrt(variance));
-        } else out.push(null);
-    }
-    return out;
+// Calculate MACD
+function calculateMACD(values) {
+  return ti.MACD.calculate({
+    values,
+    fastPeriod: 12,
+    slowPeriod: 26,
+    signalPeriod: 9,
+    SimpleMAOscillator: false,
+    SimpleMASignal: false
+  });
 }
 
-function rsi(values, period=14){
-    let out=[], gains=0, losses=0;
-    for(let i=1;i<values.length;i++){
-        const change=values[i]-values[i-1];
-        const gain=Math.max(change,0);
-        const loss=Math.max(-change,0);
-        if(i<=period){ gains+=gain; losses+=loss; out.push(null); }
-        else{
-            gains=(gains*(period-1)+gain)/period;
-            losses=(losses*(period-1)+loss)/period;
-            const rs=losses===0?100:gains/(losses||1e-10);
-            out.push(100-100/(1+rs));
-        }
-    }
-    out.unshift(null);
-    return out;
+// Calculate RSI
+function calculateRSI(values) {
+  return ti.RSI.calculate({ period: 14, values });
 }
 
-function macd(values,fast=12,slow=26,signal=9){
-    const emaFast=ema(values,fast);
-    const emaSlow=ema(values,slow);
-    const macdLine=values.map((_,i)=>emaFast[i]-emaSlow[i]);
-    const signalLine=ema(macdLine,signal);
-    const hist=macdLine.map((v,i)=>v-signalLine[i]);
-    return {macdLine,signalLine,hist};
+// Calculate Bollinger Bands
+function calculateBollinger(values) {
+  return ti.BollingerBands.calculate({ period: 20, stdDev: 2, values });
 }
 
-function obv(closes, volumes){
-    let total=0, out=[0];
-    for(let i=1;i<closes.length;i++){
-        total+=closes[i]>closes[i-1]?volumes[i]:closes[i]<closes[i-1]?-volumes[i]:0;
-        out.push(total);
-    }
-    return out;
+// Calculate OBV
+function calculateOBV(closes, volumes) {
+  return ti.OBV.calculate({ close: closes, volume: volumes });
 }
 
-function bollinger(values, period=20, mult=2){
-    const basis = sma(values, period);
-    const sd = stdev(values, period);
-    const upper = values.map((_,i)=>basis[i]!==null && sd[i]!==null ? basis[i]+mult*sd[i]:null);
-    const lower = values.map((_,i)=>basis[i]!==null && sd[i]!==null ? basis[i]-mult*sd[i]:null);
-    return { basis, upper, lower };
-}
+// Build response message
+async function buildMessage(symbolKey, timeframeKey) {
+  const symbol = SYMBOLS[symbolKey.toLowerCase()];
+  const interval = INTERVALS[timeframeKey.toLowerCase()];
 
-// Trend signal
-function trendSignal(latest){
-    let score=0;
-    if(latest.ema9>latest.ema21) score++;
-    if(latest.macdHist>0) score++;
-    if(latest.rsi>55) score++;
-    else if(latest.rsi<45) score--;
-    if(score>=2) return { text:'🟢 Bullish', color:'green' };
-    if(score<=-1) return { text:'🔴 Bearish', color:'red' };
-    return { text:'🟡 Neutral', color:'yellow' };
-}
+  if (!symbol || !interval) return 'Invalid command or timeframe!';
 
-// ===================== Fetch Data =====================
-async function fetchKlines(symbol, interval, limit=210){
-    const url=`${BYBIT_BASE}/v5/market/kline?category=${CATEGORY}&symbol=${symbol}&interval=${interval}&limit=${limit}`;
-    const {data}=await axios.get(url);
-    if(data.retCode!==0) throw new Error(data.retMsg);
-    return data.result.list.map(r=>({
-        start:Number(r[0]), open:Number(r[1]), high:Number(r[2]),
-        low:Number(r[3]), close:Number(r[4]), volume:Number(r[5])
-    }));
-}
+  const candles = await getCandles(symbol, interval);
+  if (!candles.length) return 'No candle data found!';
 
-async function fetchTicker(symbol){
-    const url=`${BYBIT_BASE}/v5/market/tickers?category=${CATEGORY}&symbol=${symbol}`;
-    const {data}=await axios.get(url);
-    if(data.retCode!==0) throw new Error(data.retMsg);
-    const t = data.result.list[0];
-    return {
-        price:Number(t.lastPrice),
-        high24:Number(t.highPrice24h),
-        low24:Number(t.lowPrice24h),
-        change:Number(t.priceChange24h),
-        changePct:Number(t.priceChangeRate24h)*100,
-        volume:Number(t.volume24h),
-        quoteVolume:Number(t.turnover24h),
-        open:Number(t.prevPrice24h)
-    };
-}
+  const ticker = await getTicker(symbol);
+  const closes = candles.map(c => parseFloat(c.close));
+  const volumes = candles.map(c => parseFloat(c.volume));
 
-// ===================== Build Report =====================
-async function buildReport(symbol, coin, tfLabel, interval){
-    const [klines, ticker] = await Promise.all([fetchKlines(symbol, interval), fetchTicker(symbol)]);
-    const closes = klines.map(k=>k.close);
-    const volumes = klines.map(k=>k.volume);
+  const ema9 = calculateEMA(closes, 9).slice(-1)[0];
+  const ema21 = calculateEMA(closes, 21).slice(-1)[0];
+  const macd = calculateMACD(closes).slice(-1)[0];
+  const rsi = calculateRSI(closes).slice(-1)[0];
+  const bb = calculateBollinger(closes).slice(-1)[0];
+  const obv = calculateOBV(closes, volumes).slice(-1)[0];
 
-    const ema9 = ema(closes,9), ema21 = ema(closes,21);
-    const rsiArr = rsi(closes,14);
-    const macdObj = macd(closes,12,26,9);
-    const obvArr = obv(closes,volumes);
-    const bb = bollinger(closes,20,2);
+  // Trend logic (simplified)
+  let trend = 'Neutral ⚪️';
+  if (ema9 > ema21 && rsi > 50) trend = 'Bullish 🟢';
+  else if (ema9 < ema21 && rsi < 50) trend = 'Bearish 🔴';
 
-    const i = closes.length-1;
-    const latest = {
-        price: closes[i], ema9: ema9[i], ema21: ema21[i], rsi: rsiArr[i],
-        macd: macdObj.macdLine[i], macdSignal: macdObj.signalLine[i], macdHist: macdObj.hist[i],
-        obv: obvArr[i], bbUpper: bb.upper[i], bbBasis: bb.basis[i], bbLower: bb.lower[i],
-        closeTime: klines[i].start
-    };
+  return `
+*${symbol} | Timeframe: ${timeframeKey.toUpperCase()}*
 
-    const trend = trendSignal(latest);
-    const closeDT = dayjs(latest.closeTime).tz(APP_TZ).format('DD/MM/YYYY, HH:mm:ss');
-
-    return `(${coin} ${tfLabel.toUpperCase()})
-💰 Price: $${fmtFixed(latest.price)}
-📈 24h High: $${fmtFixed(ticker.high24)}
-📉 24h Low: $${fmtFixed(ticker.low24)}
-🔁 Change: $${fmtFixed(ticker.change)} (${fmtFixed(ticker.changePct)}%)
-🧮 Volume: ${fmt(ticker.volume)}
-💵 Quote Volume: $${fmt(ticker.quoteVolume)}
-🔓 Open Price: $${fmtFixed(ticker.open)}
-⏰ Close Time: ${closeDT}
+💰 Price: ${ticker.lastPrice || 'N/A'}
+📈 24h High: ${ticker.highPrice || 'N/A'}
+📉 24h Low: ${ticker.lowPrice || 'N/A'}
+🔁 Change: ${ticker.priceChangePercent || 'N/A'}%
+🧮 Volume: ${ticker.volume || 'N/A'}
+💵 Quote Volume: ${ticker.quoteVolume || 'N/A'}
+🔓 Open Price: ${ticker.openPrice || 'N/A'}
+⏰ Close Time: ${moment().tz(APP_TZ).format('YYYY-MM-DD HH:mm:ss')}
 
 📊 On-Balance Volume (OBV):
-OBV: ${fmt(latest.obv)}
+OBV: ${obv || 'N/A'}
 
 Momentum Strength (MACD):
-📉 MACD: ${fmtFixed(latest.macd)}
-Signal: ${fmtFixed(latest.macdSignal)}
-Hist: ${fmtFixed(latest.macdHist)}
+📉 MACD: ${macd ? macd.MACD.toFixed(4) : 'N/A'}
+Signal: ${macd ? macd.signal.toFixed(4) : 'N/A'}
+Hist: ${macd ? macd.histogram.toFixed(4) : 'N/A'}
 
 📈 EMA:
-Asset Price: $${fmtFixed(latest.price)}
-(9): ${fmtFixed(latest.ema9)}
-(21): ${fmtFixed(latest.ema21)}
+Asset Price: ${closes.slice(-1)[0].toFixed(4)}
+(9): ${ema9.toFixed(4)}
+(21): ${ema21.toFixed(4)}
 
-⚡️ RSI(14): ${fmtFixed(latest.rsi)}
+⚡️ RSI(14): ${rsi ? rsi.toFixed(2) : 'N/A'}
 
 🎯 Bollinger(20,2):
-Upper: ${fmtFixed(latest.bbUpper)}
-Middle: ${fmtFixed(latest.bbBasis)}
-Lower: ${fmtFixed(latest.bbLower)}
+Upper: ${bb ? bb.upper.toFixed(4) : 'N/A'}
+Middle: ${bb ? bb.middle.toFixed(4) : 'N/A'}
+Lower: ${bb ? bb.lower.toFixed(4) : 'N/A'}
 
-Overall: ${trend.text}
-Time for: ${trend.color==='green'?'Enter 🟢':trend.color==='red'?'Exit 🔴':'Wait ⚡️🟡'}`;
+Overall Trend: ${trend}
+Time for: ${trend.includes('Bullish') ? 'Enter 🟢' : trend.includes('Bearish') ? 'Exit 🔴' : 'Wait 🟡'}
+  `;
 }
 
-// ===================== Telegram Listener =====================
-bot.onText(/\/(.+)/, async (msg)=>{
-    const chatId = msg.chat.id;
-    const cmd = msg.text;
-
-    if(cmd==='/start'||cmd==='/help'){
-        bot.sendMessage(chatId, "Use commands like /eth5m, /link15m, /btc1h");
-        return;
-    }
-
-    const parsed = parseCommand(cmd);
-    if(!parsed){
-        bot.sendMessage(chatId,"Invalid command. Type /help");
-        return;
-    }
-
-    try{
-        const report = await buildReport(parsed.symbol, parsed.coin, parsed.tfLabel, parsed.interval);
-        bot.sendMessage(chatId, report);
-    }catch(err){
-        bot.sendMessage(chatId, `Error: ${err.message}`);
-    }
+// Register commands dynamically
+bot.command(['eth5m','eth15m','eth1h','btc5m','btc15m','btc1h','link5m','link15m','link1h'], async (ctx) => {
+  const [cmd] = ctx.message.text.slice(1).split(/(\d+[mhd])/); // split symbol and timeframe
+  const symbolKey = cmd.match(/[a-zA-Z]+/)[0];
+  const timeframeKey = cmd.match(/\d+[mhd]/)[0];
+  const message = await buildMessage(symbolKey, timeframeKey);
+  ctx.replyWithMarkdown(message);
 });
 
-console.log('Bot is running...');
+bot.launch().then(() => console.log('Bot started on port 3000'));
