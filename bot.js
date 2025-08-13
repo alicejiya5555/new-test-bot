@@ -3,21 +3,21 @@ const axios = require('axios');
 const technical = require('technicalindicators');
 const moment = require('moment-timezone');
 
-const TELEGRAM_TOKEN = '7655482876:AAH1-wgF3Tku7Ce6E5C0VZ0kHu_3BpHqz_I'; // Replace with your BotFather token
+const TELEGRAM_TOKEN = '7655482876:AAG9jWE31Zra9wROCdikz0v7sx4TFV4dghs'; // Replace with your BotFather token
 const APP_TZ = 'Asia/Phnom_Penh';
-const BYBIT_API_URL = 'https://api.bybit.com/v5/market/kline';
+const OKX_API_URL = 'https://www.okx.com/api/v5/market/candles';
+
+const bot = new Telegraf(TELEGRAM_TOKEN);
 
 // Supported assets and mapping
 const supportedAssets = ['ETH', 'BTC', 'LINK'];
-const telegramToBybitInterval = {
+const telegramToOkxInterval = {
   '5m': '5',
   '15m': '15',
   '1h': '60',
   '4h': '240',
   '1d': 'D'
 };
-
-const bot = new Telegraf(TELEGRAM_TOKEN);
 
 // Parse Telegram command like /eth1h
 function parseCommand(cmd) {
@@ -26,30 +26,35 @@ function parseCommand(cmd) {
   return { asset: match[1].toUpperCase(), tf: match[2] };
 }
 
-// Fetch candles from Bybit public API
+// Fetch candles from OKX public API
 async function getCandles(symbol, interval) {
   try {
-    const res = await axios.get(BYBIT_API_URL, {
+    const res = await axios.get(OKX_API_URL, {
       params: {
-        category: 'spot',
-        symbol: symbol + 'USDT',
-        interval: interval,
+        instId: symbol + '-USDT',
+        bar: interval,
         limit: 200
       }
     });
-    if (res.data.retCode !== 0) {
-      console.error('Bybit API error:', res.data.retMsg);
+
+    if (res.data.code !== '0') {
+      console.error('OKX API error:', res.data.msg);
       return [];
     }
-    const list = res.data.result.list;
-    if (!list || list.length === 0) return [];
+
+    const list = res.data.data;
+    if (!list || list.length === 0) {
+      console.warn('No data returned for symbol:', symbol);
+      return [];
+    }
+
     return list.map(c => ({
-      open_time: parseInt(c.start),
-      open: parseFloat(c.open),
-      high: parseFloat(c.high),
-      low: parseFloat(c.low),
-      close: parseFloat(c.close),
-      volume: parseFloat(c.volume)
+      open_time: parseInt(c[0]),
+      open: parseFloat(c[1]),
+      high: parseFloat(c[2]),
+      low: parseFloat(c[3]),
+      close: parseFloat(c[4]),
+      volume: parseFloat(c[5])
     }));
   } catch (err) {
     console.error('Error fetching candles:', err.message);
@@ -97,9 +102,9 @@ bot.on('text', async ctx => {
 
   const { asset, tf } = parsed;
   if (!supportedAssets.includes(asset)) return ctx.reply('Asset not supported.');
-  if (!telegramToBybitInterval[tf]) return ctx.reply('Timeframe not supported.');
+  if (!telegramToOkxInterval[tf]) return ctx.reply('Timeframe not supported.');
 
-  const candles = await getCandles(asset, telegramToBybitInterval[tf]);
+  const candles = await getCandles(asset, telegramToOkxInterval[tf]);
   if (!candles || candles.length === 0) return ctx.reply('No candle data found!');
 
   const lastCandle = candles[candles.length - 1];
