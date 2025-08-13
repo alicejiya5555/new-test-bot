@@ -1,7 +1,7 @@
 {
-  "name": "bybit-telegram-indicators-bot",
-  "version": "1.0.0",
-  "description": "Telegram bot that fetches Bybit spot data and computes indicators (MACD, RSI, Bollinger, EMA 9/21, OBV, volume profile) for ETH/LINK/BTC across multiple timeframes.",
+  "name": "bybit-telegram-bot-v3",
+  "version": "3.0.0",
+  "description": "Complete Telegram bot for Bybit spot data with indicators: EMA, RSI, MACD, Bollinger Bands, OBV, Volume Profile for ETH, LINK, BTC.",
   "main": "bot.js",
   "scripts": {
     "start": "node bot.js",
