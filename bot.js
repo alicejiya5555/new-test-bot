@@ -5,7 +5,7 @@ const moment = require('moment-timezone');
 
 const TELEGRAM_TOKEN = '7655482876:AAH1-wgF3Tku7Ce6E5C0VZ0kHu_3BpHqz_I';
 const APP_TZ = 'Asia/Phnom_Penh';
-const BYBIT_SPOT_KLINE = 'https://api.bybit.com/spot/quote/v1/kline';
+const BYBIT_SPOT_KLINE = 'https://api.bybit.com/v5/market/kline';
 
 const bot = new Telegraf(TELEGRAM_TOKEN);
 
@@ -19,28 +19,27 @@ const telegramToBybitInterval = {
     '24h': 'D'
 };
 
-// Parse command like /eth1h or /link15m
+// Parse Telegram commands like /eth1h
 function parseCommand(cmd) {
     const match = cmd.match(/\/([a-zA-Z]+)(\d+[mh])/);
     if (!match) return null;
-    const asset = match[1].toUpperCase();
-    const tf = match[2];
-    return { asset, tf };
+    return { asset: match[1].toUpperCase(), tf: match[2] };
 }
 
-// Fetch candles from Bybit Spot API
+// Fetch candles from Bybit v5 Spot API
 async function getCandles(symbol, interval) {
     try {
         const res = await axios.get(BYBIT_SPOT_KLINE, {
             params: {
                 symbol: symbol + 'USDT',
                 interval: interval,
+                category: 'spot',
                 limit: 100
             }
         });
-        if (!res.data.result) return [];
-        return res.data.result.map(c => ({
-            open_time: c.open_time,
+        if (!res.data.result || !res.data.result.list) return [];
+        return res.data.result.list.map(c => ({
+            open_time: c.start,
             open: parseFloat(c.open),
             high: parseFloat(c.high),
             low: parseFloat(c.low),
@@ -77,7 +76,7 @@ function trendSignal(price, ema9, ema21) {
 // Start command
 bot.start((ctx) => ctx.reply('Welcome! Use commands like /eth1h or /link15m'));
 
-// Handle commands
+// Handle Telegram text commands
 bot.on('text', async (ctx) => {
     const parsed = parseCommand(ctx.message.text.toLowerCase());
     if (!parsed) return ctx.reply('Invalid command format! Example: /eth1h');
