@@ -1,17 +1,15 @@
 {
   "name": "crypto-telegram-bot",
   "version": "1.0.0",
-  "description": "Telegram bot for Bybit spot crypto market analysis with technical indicators",
+  "description": "Telegram bot to fetch crypto data and technical indicators from Bybit",
   "main": "bot.js",
   "scripts": {
     "start": "node bot.js"
   },
   "dependencies": {
     "axios": "^1.6.0",
-    "telegraf": "^4.15.2",
-    "technicalindicators": "^3.0.2",
-    "moment-timezone": "^0.5.43"
-  },
-  "author": "Ronaldo",
-  "license": "MIT"
+    "telegraf": "^4.12.2",
+    "technicalindicators": "^4.2.0",
+    "moment": "^2.30.0"
+  }
 }
