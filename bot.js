@@ -6,12 +6,10 @@ const moment = require('moment-timezone');
 // ---------- CONFIG ----------
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '8242504126:AAG-DGjS6HMihOXchcuIFGORqWHJhE9Luxg';
 const CMC_API_KEY = process.env.CMC_API_KEY || 'd0fb14c7-6905-4d42-8aa8-0558bfaea824';
-const AMBER_API_KEY = process.env.AMBER_API_KEY || ''; // optional
 const WEBHOOK_URL = process.env.WEBHOOK_URL || 'https://new-test-bot-2hjw.onrender.com';
 const PORT = process.env.PORT || 3000;
 
 const CMC_BASE = 'https://pro-api.coinmarketcap.com/v1';
-const AMBER_BASE = 'https://api.amberdata.io/v2';
 
 // Create bot
 const bot = new Telegraf(TELEGRAM_BOT_TOKEN);
@@ -58,31 +56,33 @@ async function getMarketClockAPI() {
 
   markets.forEach(m => {
     const nowLocal = moment().tz(m.timezone);
-    const nowUTC7 = moment().tz('Asia/Bangkok'); // UTC+7 reference
     const currHour = nowLocal.hour() + nowLocal.minute() / 60;
 
-    let status = '';
-    let color = '';
-    let timeLeft = 0;
+    let color, hoursLeft, minsLeft;
 
-    let openTime = m.open;
-    let closeTime = m.close > m.open ? m.close : m.close + 24;
+    const openTime = m.open;
+    const closeTime = m.close;
 
     if (currHour >= openTime && currHour < closeTime) {
-      status = 'Open';
+      // Market is OPEN
       color = '🟢';
-      timeLeft = closeTime - currHour;
+      const remaining = closeTime - currHour;
+      hoursLeft = Math.floor(remaining);
+      minsLeft = Math.floor((remaining - hoursLeft) * 60);
+      msg += `${color} ${m.name} - Open (${hoursLeft}h ${minsLeft}m left)\n`;
     } else {
-      status = 'Closed';
+      // Market is CLOSED
       color = '🔴';
-      if (currHour < openTime) timeLeft = openTime - currHour;
-      else timeLeft = openTime + 24 - currHour;
+      let remaining = 0;
+      if (currHour < openTime) {
+        remaining = openTime - currHour;
+      } else {
+        remaining = openTime + 24 - currHour;
+      }
+      hoursLeft = Math.floor(remaining);
+      minsLeft = Math.floor((remaining - hoursLeft) * 60);
+      msg += `${color} ${m.name} - Closed (${hoursLeft}h ${minsLeft}m left to open)\n`;
     }
-
-    const hours = Math.floor(timeLeft);
-    const mins = Math.floor((timeLeft - hours) * 60);
-
-    msg += `${color} ${m.name} - ${status} (${hours}h ${mins}m left)\n`;
   });
 
   return msg;
