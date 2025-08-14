@@ -1,153 +1,120 @@
 const { Telegraf } = require('telegraf');
 const axios = require('axios');
-const technical = require('technicalindicators');
-const moment = require('moment-timezone');
+const express = require('express');
 
-const TELEGRAM_TOKEN = '7655482876:AAG9jWE31Zra9wROCdikz0v7sx4TFV4dghs'; // Replace with your BotFather token
-const APP_TZ = 'Asia/Phnom_Penh';
-const OKX_API_URL = 'https://www.okx.com/api/v5/market/candles';
+const bot = new Telegraf('8242504126:AAG-DGjS6HMihOXchcuIFGORqWHJhE9Luxg');
+const app = express();
+const PORT = 3000;
 
-const bot = new Telegraf(TELEGRAM_TOKEN);
+const CMC_API_KEY = 'd0fb14c7-6905-4d42-8aa8-0558bfaea824';
+const CMC_BASE_URL = 'https://pro-api.coinmarketcap.com/v1';
 
-// Supported assets and mapping
-const supportedAssets = ['ETH', 'BTC', 'LINK'];
-const telegramToOkxInterval = {
-  '5m': '5',
-  '15m': '15',
-  '1h': '60',
-  '4h': '240',
-  '1d': 'D'
-};
+// Keep track of users who started the bot
+const activeUsers = new Set();
 
-// Parse Telegram command like /eth1h
-function parseCommand(cmd) {
-  const match = cmd.match(/\/([a-zA-Z]+)(\d+[mh])/);
-  if (!match) return null;
-  return { asset: match[1].toUpperCase(), tf: match[2] };
-}
-
-// Fetch candles from OKX public API
-async function getCandles(symbol, interval) {
+// ------------------ Fetch CMC Data ------------------
+async function fetchCMCData() {
   try {
-    const res = await axios.get(OKX_API_URL, {
-      params: {
-        instId: symbol + '-USDT',
-        bar: interval,
-        limit: 200
-      }
-    });
+    const [market, fearGreed, altSeason, cmc100, etfs, dominance, openInterest, volmex] = await Promise.all([
+      axios.get(`${CMC_BASE_URL}/global-metrics/quotes/latest`, { headers: { 'X-CMC_PRO_API_KEY': CMC_API_KEY } }),
+      axios.get(`${CMC_BASE_URL}/tools/price-performance/fear-and-greed`, { headers: { 'X-CMC_PRO_API_KEY': CMC_API_KEY } }),
+      axios.get(`${CMC_BASE_URL}/tools/altcoin-season`, { headers: { 'X-CMC_PRO_API_KEY': CMC_API_KEY } }),
+      axios.get(`${CMC_BASE_URL}/cryptocurrency/listings/latest?limit=100`, { headers: { 'X-CMC_PRO_API_KEY': CMC_API_KEY } }),
+      axios.get(`${CMC_BASE_URL}/etf/flow`, { headers: { 'X-CMC_PRO_API_KEY': CMC_API_KEY } }),
+      axios.get(`${CMC_BASE_URL}/global-metrics/quotes/latest`, { headers: { 'X-CMC_PRO_API_KEY': CMC_API_KEY } }),
+      axios.get(`${CMC_BASE_URL}/futures/open-interest/latest`, { headers: { 'X-CMC_PRO_API_KEY': CMC_API_KEY } }),
+      axios.get(`${CMC_BASE_URL}/tools/volatility-implied`, { headers: { 'X-CMC_PRO_API_KEY': CMC_API_KEY } }),
+    ]);
 
-    if (res.data.code !== '0') {
-      console.error('OKX API error:', res.data.msg);
-      return [];
-    }
-
-    const list = res.data.data;
-    if (!list || list.length === 0) {
-      console.warn('No data returned for symbol:', symbol);
-      return [];
-    }
-
-    return list.map(c => ({
-      open_time: parseInt(c[0]),
-      open: parseFloat(c[1]),
-      high: parseFloat(c[2]),
-      low: parseFloat(c[3]),
-      close: parseFloat(c[4]),
-      volume: parseFloat(c[5])
-    }));
+    return {
+      market: market.data.data,
+      fearGreed: fearGreed.data.data,
+      altSeason: altSeason.data.data,
+      cmc100: cmc100.data.data,
+      etfs: etfs.data.data,
+      dominance: dominance.data.data,
+      openInterest: openInterest.data.data,
+      volmex: volmex.data.data
+    };
   } catch (err) {
-    console.error('Error fetching candles:', err.message);
-    return [];
+    console.error('Error fetching CMC data:', err.message);
+    return null;
   }
 }
 
-// Calculate indicators safely
-function calculateIndicators(candles) {
-  if (candles.length < 2) return null;
+// ------------------ Format Message ------------------
+function formatMessage(data) {
+  if (!data) return '❌ Error fetching data.';
 
-  const closes = candles.map(c => c.close);
-  const volumes = candles.map(c => c.volume);
+  const market = data.market;
+  const fearGreed = data.fearGreed;
+  const altSeason = data.altSeason;
+  const cmc100 = data.cmc100;
+  const etfs = data.etfs;
+  const dominance = data.dominance;
+  const openInterest = data.openInterest;
+  const volmex = data.volmex;
 
-  const obv = technical.OBV.calculate({ close: closes, volume: volumes }).slice(-1)[0] || 0;
-  const ema9 = technical.EMA.calculate({ period: 9, values: closes }).slice(-1)[0] || closes[closes.length - 1];
-  const ema21 = technical.EMA.calculate({ period: 21, values: closes }).slice(-1)[0] || closes[closes.length - 1];
-  const rsi = technical.RSI.calculate({ period: 14, values: closes }).slice(-1)[0] || 50;
+  return `
+💹 Crypto Market Overview
+📊 Market Cap: $${Number(market.quote.USD.total_market_cap).toLocaleString()}
+🔁 24h Volume: $${Number(market.quote.USD.total_volume_24h).toLocaleString()}
 
-  let bbUpper = null, bbMiddle = null, bbLower = null;
-  const bbResult = technical.BollingerBands.calculate({ period: 20, values: closes, stdDev: 2 }).slice(-1)[0];
-  if (bbResult) {
-    bbUpper = bbResult.upper;
-    bbMiddle = bbResult.middle;
-    bbLower = bbResult.lower;
-  }
+😱 Fear & Greed Index: ${fearGreed.value} (${fearGreed.value_classification})
+🌐 Altcoin Season Index: ${altSeason.value}%
+📈 CMC100 Index: ${cmc100.length ? 'Top 100 listed' : 'N/A'}
 
-  return { obv, ema9, ema21, rsi, bbUpper, bbMiddle, bbLower };
-}
+💵 ETFs Net Flow:
+ETH ETF: ${etfs.eth || 'N/A'}
+BTC ETF: ${etfs.btc || 'N/A'}
 
-// Determine trend
-function trendSignal(price, ema9, ema21) {
-  if (price > ema9 && ema9 > ema21) return 'Bullish 🟢';
-  if (price < ema9 && ema9 < ema21) return 'Bearish 🔴';
-  return 'Sideways 🟡';
-}
+💪 Dominance:
+ETH Dominance: ${dominance.eth_dominance}%
+BTC Dominance: ${dominance.btc_dominance}%
 
-// Start command
-bot.start(ctx => ctx.reply('Welcome! Use commands like /eth1h, /link15m, /btc4h'));
+📈 Open Interest:
+Perpetuals: ${openInterest.perpetuals || 'N/A'}
+Futures: ${openInterest.futures || 'N/A'}
 
-// Handle Telegram text commands
-bot.on('text', async ctx => {
-  const parsed = parseCommand(ctx.message.text.toLowerCase());
-  if (!parsed) return ctx.reply('Invalid command! Example: /eth1h');
-
-  const { asset, tf } = parsed;
-  if (!supportedAssets.includes(asset)) return ctx.reply('Asset not supported.');
-  if (!telegramToOkxInterval[tf]) return ctx.reply('Timeframe not supported.');
-
-  const candles = await getCandles(asset, telegramToOkxInterval[tf]);
-  if (!candles || candles.length === 0) return ctx.reply('No candle data found!');
-
-  const lastCandle = candles[candles.length - 1];
-  const indicators = calculateIndicators(candles);
-  if (!indicators) return ctx.reply('Not enough data to calculate indicators.');
-
-  const trend = trendSignal(lastCandle.close, indicators.ema9, indicators.ema21);
-
-  const message = `
-*${asset} - ${tf}*
-
-💰 Price: ${lastCandle.close}
-📈 24h High: ${Math.max(...candles.map(c => c.high))}
-📉 24h Low: ${Math.min(...candles.map(c => c.low))}
-🔁 Change: ${((lastCandle.close - candles[0].open) / candles[0].open * 100).toFixed(2)}%
-🧮 Volume: ${lastCandle.volume}
-💵 Quote Volume: ${(lastCandle.volume * lastCandle.close).toFixed(2)}
-🔓 Open Price: ${lastCandle.open}
-⏰ Close Time: ${moment(lastCandle.open_time).tz(APP_TZ).format('YYYY-MM-DD HH:mm:ss')}
-
-📊 On-Balance Volume (OBV): ${indicators.obv}
-
-📈 EMA:
-Asset Price: ${lastCandle.close}
-(9): ${indicators.ema9.toFixed(4)}
-(21): ${indicators.ema21.toFixed(4)}
-
-⚡️ RSI(14): ${indicators.rsi.toFixed(2)}
-
-🎯 Bollinger(20,2):
-Upper: ${indicators.bbUpper ? indicators.bbUpper.toFixed(4) : 'N/A'}
-Middle: ${indicators.bbMiddle ? indicators.bbMiddle.toFixed(4) : 'N/A'}
-Lower: ${indicators.bbLower ? indicators.bbLower.toFixed(4) : 'N/A'}
-
-Overall Trend: ${trend}
+⚡ Volmex Implied Volatility: ${volmex.volatility || 'N/A'}
 `;
+}
 
-  ctx.replyWithMarkdown(message);
+// ------------------ Bot Commands ------------------
+
+// /start command
+bot.start(async (ctx) => {
+  activeUsers.add(ctx.chat.id); // Track user
+  ctx.reply('Welcome! You will now receive crypto updates every 1 hour. Here is the latest info:');
+  const data = await fetchCMCData();
+  ctx.reply(formatMessage(data));
 });
 
-// Launch bot with polling mode
-bot.launch({ polling: true }).then(() => console.log('Bot running with polling mode'));
+// /crypto command for manual update
+bot.command('crypto', async (ctx) => {
+  const data = await fetchCMCData();
+  ctx.reply(formatMessage(data));
+});
 
-// Graceful shutdown
-process.once('SIGINT', () => bot.stop('SIGINT'));
-process.once('SIGTERM', () => bot.stop('SIGTERM'));
+// ------------------ Auto-send every 1 hour ------------------
+setInterval(async () => {
+  if (activeUsers.size === 0) return; // No users yet
+  const data = await fetchCMCData();
+  const message = formatMessage(data);
+  activeUsers.forEach((chatId) => {
+    bot.telegram.sendMessage(chatId, message);
+  });
+}, 1000 * 60 * 60); // 1 hour interval
+
+// ------------------ Launch Bot ------------------
+bot.launch();
+console.log('Telegram bot launched.');
+
+// ------------------ Express server for Render ------------------
+app.get('/', (req, res) => {
+  res.send('Bot is running 🚀');
+});
+
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});
