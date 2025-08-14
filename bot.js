@@ -15,29 +15,23 @@ const activeUsers = new Set();
 // ------------------ Fetch CMC Data ------------------
 async function fetchCMCData() {
   try {
-    const [market, fearGreed, altSeason, cmc100, etfs, dominance, openInterest, volmex] = await Promise.all([
-      axios.get(`${CMC_BASE_URL}/global-metrics/quotes/latest`, { headers: { 'X-CMC_PRO_API_KEY': CMC_API_KEY } }),
-      axios.get(`${CMC_BASE_URL}/tools/price-performance/fear-and-greed`, { headers: { 'X-CMC_PRO_API_KEY': CMC_API_KEY } }),
-      axios.get(`${CMC_BASE_URL}/tools/altcoin-season`, { headers: { 'X-CMC_PRO_API_KEY': CMC_API_KEY } }),
-      axios.get(`${CMC_BASE_URL}/cryptocurrency/listings/latest?limit=100`, { headers: { 'X-CMC_PRO_API_KEY': CMC_API_KEY } }),
-      axios.get(`${CMC_BASE_URL}/etf/flow`, { headers: { 'X-CMC_PRO_API_KEY': CMC_API_KEY } }),
-      axios.get(`${CMC_BASE_URL}/global-metrics/quotes/latest`, { headers: { 'X-CMC_PRO_API_KEY': CMC_API_KEY } }),
-      axios.get(`${CMC_BASE_URL}/futures/open-interest/latest`, { headers: { 'X-CMC_PRO_API_KEY': CMC_API_KEY } }),
-      axios.get(`${CMC_BASE_URL}/tools/volatility-implied`, { headers: { 'X-CMC_PRO_API_KEY': CMC_API_KEY } }),
+    // Only valid endpoints
+    const [marketData, fearGreedData] = await Promise.all([
+      axios.get(`${CMC_BASE_URL}/global-metrics/quotes/latest`, {
+        headers: { 'X-CMC_PRO_API_KEY': CMC_API_KEY }
+      }),
+      axios.get(`${CMC_BASE_URL}/tools/price-performance/fear-and-greed`, {
+        headers: { 'X-CMC_PRO_API_KEY': CMC_API_KEY }
+      })
     ]);
 
     return {
-      market: market.data.data,
-      fearGreed: fearGreed.data.data,
-      altSeason: altSeason.data.data,
-      cmc100: cmc100.data.data,
-      etfs: etfs.data.data,
-      dominance: dominance.data.data,
-      openInterest: openInterest.data.data,
-      volmex: volmex.data.data
+      market: marketData.data.data,
+      fearGreed: fearGreedData.data.data
     };
+
   } catch (err) {
-    console.error('Error fetching CMC data:', err.message);
+    console.error('Error fetching CMC data:', err.response ? err.response.data : err.message);
     return null;
   }
 }
@@ -48,35 +42,15 @@ function formatMessage(data) {
 
   const market = data.market;
   const fearGreed = data.fearGreed;
-  const altSeason = data.altSeason;
-  const cmc100 = data.cmc100;
-  const etfs = data.etfs;
-  const dominance = data.dominance;
-  const openInterest = data.openInterest;
-  const volmex = data.volmex;
 
   return `
 💹 Crypto Market Overview
-📊 Market Cap: $${Number(market.quote.USD.total_market_cap).toLocaleString()}
+📊 Total Market Cap: $${Number(market.quote.USD.total_market_cap).toLocaleString()}
 🔁 24h Volume: $${Number(market.quote.USD.total_volume_24h).toLocaleString()}
 
 😱 Fear & Greed Index: ${fearGreed.value} (${fearGreed.value_classification})
-🌐 Altcoin Season Index: ${altSeason.value}%
-📈 CMC100 Index: ${cmc100.length ? 'Top 100 listed' : 'N/A'}
-
-💵 ETFs Net Flow:
-ETH ETF: ${etfs.eth || 'N/A'}
-BTC ETF: ${etfs.btc || 'N/A'}
-
-💪 Dominance:
-ETH Dominance: ${dominance.eth_dominance}%
-BTC Dominance: ${dominance.btc_dominance}%
-
-📈 Open Interest:
-Perpetuals: ${openInterest.perpetuals || 'N/A'}
-Futures: ${openInterest.futures || 'N/A'}
-
-⚡ Volmex Implied Volatility: ${volmex.volatility || 'N/A'}
+💪 BTC Dominance: ${market.btc_dominance}%
+💪 ETH Dominance: ${market.eth_dominance}%
 `;
 }
 
