@@ -1,22 +1,22 @@
 const { Telegraf } = require('telegraf');
 const axios = require('axios');
-const express = require('express');
-const moment = require('moment'); // For formatting date/time
 
-const bot = new Telegraf('8242504126:AAG-DGjS6HMihOXchcuIFGORqWHJhE9Luxg');
-const app = express();
-const PORT = 3000;
-
+// ---------- CONFIG ----------
+const TELEGRAM_BOT_TOKEN = '8242504126:AAG-DGjS6HMihOXchcuIFGORqWHJhE9Luxg';
 const CMC_API_KEY = 'd0fb14c7-6905-4d42-8aa8-0558bfaea824';
-const CMC_BASE_URL = 'https://pro-api.coinmarketcap.com/v1';
+const TOP_COIN_LIMIT = 5;
 
-// Track active users
+// Create bot
+const bot = new Telegraf(TELEGRAM_BOT_TOKEN);
+
+// Track active users for hourly updates
 const activeUsers = new Set();
 
-// ------------------ Fetch Functions ------------------
-async function fetchCMCMarket() {
+// ---------- FETCH FUNCTIONS ----------
+
+async function fetchMarketOverview() {
   try {
-    const res = await axios.get(`${CMC_BASE_URL}/global-metrics/quotes/latest`, {
+    const res = await axios.get('https://pro-api.coinmarketcap.com/v1/global-metrics/quotes/latest', {
       headers: { 'X-CMC_PRO_API_KEY': CMC_API_KEY }
     });
     return res.data.data;
@@ -25,9 +25,9 @@ async function fetchCMCMarket() {
   }
 }
 
-async function fetchTopCoins(limit = 5) {
+async function fetchTopCoins(limit = TOP_COIN_LIMIT) {
   try {
-    const res = await axios.get(`${CMC_BASE_URL}/cryptocurrency/listings/latest`, {
+    const res = await axios.get('https://pro-api.coinmarketcap.com/v1/cryptocurrency/listings/latest', {
       headers: { 'X-CMC_PRO_API_KEY': CMC_API_KEY },
       params: { limit, convert: 'USD' }
     });
@@ -37,7 +37,8 @@ async function fetchTopCoins(limit = 5) {
   }
 }
 
-// ------------------ Format Message ------------------
+// ---------- FORMAT MESSAGE ----------
+
 function formatMessage(market, topCoins) {
   let msg = '🔹 Top Coins:\n\n';
 
@@ -45,7 +46,6 @@ function formatMessage(market, topCoins) {
     const change24h = coin.quote.USD.percent_change_24h;
     const trendEmoji = change24h >= 0 ? '📈' : '📉';
     const trendSign = change24h >= 0 ? '+' : '';
-
     const volMktCap = coin.quote.USD.volume_24h / coin.quote.USD.market_cap * 100;
 
     msg += `${index + 1}. ${coin.name} (${coin.symbol})\n`;
@@ -59,7 +59,7 @@ function formatMessage(market, topCoins) {
     msg += `${trendEmoji} ${trendSign}${change24h.toFixed(2)}% ${trendEmoji}\n\n`;
   });
 
-  // Market Overview
+  // Market overview
   msg += '💹 Crypto Market Overview\n';
   if (market) {
     msg += `📊 Market Cap: $${Number(market.quote.USD.total_market_cap).toLocaleString()}\n`;
@@ -67,53 +67,39 @@ function formatMessage(market, topCoins) {
     msg += `💪 BTC Dominance: ${market.btc_dominance}%\n`;
     msg += `💪 ETH Dominance: ${market.eth_dominance}%\n`;
   } else {
-    msg += '📊 Market Cap: N/A\n🔁 24h Volume: N/A\n💪 BTC Dominance: N/A\n💪 ETH Dominance: N/A\n';
+    msg += `📊 Market Cap: N/A\n🔁 24h Volume: N/A\n💪 BTC Dominance: N/A\n💪 ETH Dominance: N/A\n`;
   }
 
-  // Current Date/Time
-  msg += `🕒 Date/Time: ${moment().utc().format('YYYY-MM-DD HH:mm [UTC]')}\n`;
+  const now = new Date();
+  const utcDateTime = now.toISOString().replace('T', ' ').split('.')[0] + ' UTC';
+  msg += `🕒 Date/Time: ${utcDateTime}\n`;
 
   return msg;
 }
 
-// ------------------ Bot Commands ------------------
+// ---------- BOT COMMANDS ----------
 
-// /start command
 bot.start(async (ctx) => {
   activeUsers.add(ctx.chat.id);
   ctx.reply('Welcome! You will now receive crypto updates every 1 hour. Here is the latest info:');
 
-  const [market, topCoins] = await Promise.all([fetchCMCMarket(), fetchTopCoins()]);
+  const [market, topCoins] = await Promise.all([fetchMarketOverview(), fetchTopCoins()]);
   ctx.reply(formatMessage(market, topCoins));
 });
 
-// /crypto command for manual update
 bot.command('crypto', async (ctx) => {
-  const [market, topCoins] = await Promise.all([fetchCMCMarket(), fetchTopCoins()]);
+  const [market, topCoins] = await Promise.all([fetchMarketOverview(), fetchTopCoins()]);
   ctx.reply(formatMessage(market, topCoins));
 });
 
-// ------------------ Auto-send every 1 hour ------------------
+// ---------- AUTO SEND EVERY 1 HOUR ----------
 setInterval(async () => {
   if (activeUsers.size === 0) return;
-
-  const [market, topCoins] = await Promise.all([fetchCMCMarket(), fetchTopCoins()]);
+  const [market, topCoins] = await Promise.all([fetchMarketOverview(), fetchTopCoins()]);
   const message = formatMessage(market, topCoins);
+  activeUsers.forEach(chatId => bot.telegram.sendMessage(chatId, message));
+}, 1000 * 60 * 60);
 
-  activeUsers.forEach((chatId) => {
-    bot.telegram.sendMessage(chatId, message);
-  });
-}, 1000 * 60 * 60); // 1 hour
-
-// ------------------ Launch Bot ------------------
+// ---------- LAUNCH BOT ----------
 bot.launch();
 console.log('Telegram bot launched.');
-
-// ------------------ Express server for Render ------------------
-app.get('/', (req, res) => {
-  res.send('Bot is running 🚀');
-});
-
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
