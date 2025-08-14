@@ -45,45 +45,59 @@ async function fetchCoin(symbol) {
 
 // ---------- MARKET CLOCK ----------
 async function getMarketClockAPI() {
-  const markets = [
+  // ---------- STOCK MARKETS ----------
+  const stockMarkets = [
     { name: 'Tokyo (JP)', timezone: 'Asia/Tokyo', open: 9, close: 15 },
     { name: 'London (UK)', timezone: 'Europe/London', open: 9, close: 17 },
     { name: 'New York (US)', timezone: 'America/New_York', open: 9, close: 17 },
     { name: 'Australia (ASX)', timezone: 'Australia/Sydney', open: 10, close: 16 }
   ];
 
-  let msg = '📈 MarketClock (UTC+07):\n';
+  // ---------- FOREX MARKETS ----------
+  const forexMarkets = [
+    { name: 'Tokyo (JP)', timezone: 'Asia/Tokyo', open: 9, close: 18 },
+    { name: 'London (UK)', timezone: 'Europe/London', open: 8, close: 17 },
+    { name: 'New York (US)', timezone: 'America/New_York', open: 8, close: 17 },
+    { name: 'Sydney (AU)', timezone: 'Australia/Sydney', open: 7, close: 16 }
+  ];
 
-  markets.forEach(m => {
-    const nowLocal = moment().tz(m.timezone);
-    const currHour = nowLocal.hour() + nowLocal.minute() / 60;
+  const formatMarkets = (markets) => {
+    let msg = '';
+    markets.forEach(m => {
+      const nowLocal = moment().tz(m.timezone);
+      const currHour = nowLocal.hour() + nowLocal.minute() / 60;
 
-    let color, hoursLeft, minsLeft;
+      let color, hoursLeft, minsLeft;
+      const openTime = m.open;
+      const closeTime = m.close;
 
-    const openTime = m.open;
-    const closeTime = m.close;
-
-    if (currHour >= openTime && currHour < closeTime) {
-      // Market is OPEN
-      color = '🟢';
-      const remaining = closeTime - currHour;
-      hoursLeft = Math.floor(remaining);
-      minsLeft = Math.floor((remaining - hoursLeft) * 60);
-      msg += `${color} ${m.name} - Open (${hoursLeft}h ${minsLeft}m left)\n`;
-    } else {
-      // Market is CLOSED
-      color = '🔴';
-      let remaining = 0;
-      if (currHour < openTime) {
-        remaining = openTime - currHour;
+      if (currHour >= openTime && currHour < closeTime) {
+        color = '🟢';
+        const remaining = closeTime - currHour;
+        hoursLeft = Math.floor(remaining);
+        minsLeft = Math.floor((remaining - hoursLeft) * 60);
+        msg += `${color} ${m.name} - Open (${hoursLeft}h ${minsLeft}m left)\n`;
       } else {
-        remaining = openTime + 24 - currHour;
+        color = '🔴';
+        let remaining = 0;
+        if (currHour < openTime) {
+          remaining = openTime - currHour;
+        } else {
+          remaining = openTime + 24 - currHour;
+        }
+        hoursLeft = Math.floor(remaining);
+        minsLeft = Math.floor((remaining - hoursLeft) * 60);
+        msg += `${color} ${m.name} - Closed (${hoursLeft}h ${minsLeft}m left to open)\n`;
       }
-      hoursLeft = Math.floor(remaining);
-      minsLeft = Math.floor((remaining - hoursLeft) * 60);
-      msg += `${color} ${m.name} - Closed (${hoursLeft}h ${minsLeft}m left to open)\n`;
-    }
-  });
+    });
+    return msg;
+  }
+
+  let msg = '📈 MarketClock (UTC+07):\n\n';
+  msg += '💹 World Stock Market Hours\n';
+  msg += formatMarkets(stockMarkets) + '\n';
+  msg += '💹 Forex Market Hours\n';
+  msg += formatMarkets(forexMarkets);
 
   return msg;
 }
