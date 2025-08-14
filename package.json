@@ -1,15 +1,14 @@
 {
   "name": "crypto-telegram-bot",
   "version": "1.0.0",
-  "description": "A Telegram bot for crypto market overview with top coins, market cap, dominance, ETF flows, and more.",
+  "description": "Telegram bot for crypto market overview with top coins and metrics.",
   "main": "bot.js",
   "scripts": {
     "start": "node bot.js"
   },
   "dependencies": {
     "axios": "^1.6.5",
-    "telegraf": "^4.15.0",
-    "moment": "^2.30.0"
+    "telegraf": "^4.15.0"
   },
   "engines": {
     "node": ">=18.0.0"
