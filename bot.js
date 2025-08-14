@@ -1,13 +1,4 @@
-const { Telegraf } = require('telegraf');
-const axios = require('axios');
-const express = require('express');
-
-// ---------- CONFIG ----------
-const TELEGRAM_BOT_TOKEN = '';
-const CMC_API_KEY = 'd0fb14c7-6905-4d42-8aa8-0558bfaea824';
-const PORT = process.env.PORT || 3000;
-const WEBHOOK_URL = process.env.WEBHOOK_URL || 'https://new-test-bot-2hjw.onrender.com';
-
+require('dotenv').config();
 const { Telegraf } = require('telegraf');
 const axios = require('axios');
 const express = require('express');
@@ -15,7 +6,7 @@ const express = require('express');
 // ----- CONFIG -----
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '8242504126:AAG-DGjS6HMihOXchcuIFGORqWHJhE9Luxg';
 const CMC_API_KEY = process.env.CMC_API_KEY || 'd0fb14c7-6905-4d42-8aa8-0558bfaea824';
-const AMBER_API_KEY = process.env.AMBER_API_KEY || ''; // optional if accessible
+const AMBER_API_KEY = process.env.AMBER_API_KEY || ''; // optional
 const WEBHOOK_URL = process.env.WEBHOOK_URL || 'https://new-test-bot-2hjw.onrender.com';
 const PORT = process.env.PORT || 3000;
 
@@ -27,7 +18,7 @@ const bot = new Telegraf(TELEGRAM_BOT_TOKEN);
 const app = express();
 const activeUsers = new Set();
 
-// ----- TIME HELPERS -----
+// ----- HELPERS -----
 function utc7Now() {
   const now = new Date();
   const utc = now.getTime() + now.getTimezoneOffset() * 60000;
@@ -38,32 +29,34 @@ function formatUTCTime(date) {
   return date.toISOString().replace('T', ' ').split('.')[0] + ' UTC+07';
 }
 
+function fmtNum(num, dec = 2) {
+  if (!num && num !== 0) return 'N/A';
+  return Number(num).toLocaleString(undefined, { minimumFractionDigits: dec, maximumFractionDigits: dec });
+}
+
+// ----- MARKET CLOCK -----
 function marketClockUTC7() {
   const now = utc7Now();
-  const h = now.getUTCHours(), m = now.getUTCMinutes();
+  const h = now.getUTCHours() + now.getUTCMinutes() / 60;
 
   const markets = [
     { name: 'Tokyo (JP)', open: 9, close: 15 },
-    { name: 'London (UK)', open: 16, close: 23 }, // 9-16 GMT = 16-23 UTC+7
-    { name: 'New York (US)', open: 20, close: 3 + 24 }, // 13-20 ET = 20-3 UTC+7
+    { name: 'London (UK)', open: 16, close: 23 },
+    { name: 'New York (US)', open: 20, close: 3 + 24 },
   ];
 
   let msg = '';
   markets.forEach(mkt => {
     const { name, open, close } = mkt;
     let openNow = false, timeLeft = '—';
-    let current = h + m / 60;
 
     if (open < close) {
-      openNow = current >= open && current < close;
-      if (openNow) timeLeft = ((close - current) * 60).toFixed(0) + ' min';
+      openNow = h >= open && h < close;
+      if (openNow) timeLeft = ((close - h) * 60).toFixed(0) + ' min';
     } else {
-      openNow = current >= open || current < close;
+      openNow = h >= open || h < close;
       if (openNow) {
-        timeLeft =
-          current >= open
-            ? ((24 - current + close) * 60).toFixed(0)
-            : ((close - current) * 60).toFixed(0);
+        timeLeft = h >= open ? ((24 - h + close) * 60).toFixed(0) : ((close - h) * 60).toFixed(0);
       }
     }
     msg += `${openNow ? '🟢' : '🔴'} ${name} - ${openNow ? `${timeLeft} to close` : 'Closed'}\n`;
@@ -101,12 +94,8 @@ async function fetchETFFlows() {
   if (!AMBER_API_KEY) return { btc: 'N/A', eth: 'N/A' };
   try {
     const [btcRes, ethRes] = await Promise.all([
-      axios.get(`${AMBER_BASE}/metrics/asset/bitcoin/etf-holdings/flow`, {
-        headers: { 'x-api-key': AMBER_API_KEY }
-      }),
-      axios.get(`${AMBER_BASE}/metrics/asset/ethereum/etf-holdings/flow`, {
-        headers: { 'x-api-key': AMBER_API_KEY }
-      })
+      axios.get(`${AMBER_BASE}/metrics/asset/bitcoin/etf-holdings/flow`, { headers: { 'x-api-key': AMBER_API_KEY } }),
+      axios.get(`${AMBER_BASE}/metrics/asset/ethereum/etf-holdings/flow`, { headers: { 'x-api-key': AMBER_API_KEY } })
     ]);
     const btcFlow = btcRes.data?.data?.[0]?.value ?? 'N/A';
     const ethFlow = ethRes.data?.data?.[0]?.value ?? 'N/A';
@@ -120,7 +109,7 @@ async function fetchETFFlows() {
   }
 }
 
-// ----- MESSAGE FORMATTER -----
+// ----- FORMATTERS -----
 function fmtCoin(coin) {
   if (!coin) return 'Coin data unavailable.';
   const c = coin;
@@ -210,7 +199,7 @@ setInterval(async () => {
   activeUsers.forEach(id => bot.telegram.sendMessage(id, msg));
 }, 1000 * 60 * 60);
 
-// ----- WEBHOOK SETUP -----
+// ----- WEBHOOK -----
 app.use(bot.webhookCallback('/'));
 app.get('/', (req, res) => res.send('Bot is alive'));
 app.listen(PORT, async () => {
