@@ -1,9 +1,12 @@
 const { Telegraf } = require('telegraf');
 const axios = require('axios');
+const express = require('express');
 
 // ---------- CONFIG ----------
 const TELEGRAM_BOT_TOKEN = '8242504126:AAG-DGjS6HMihOXchcuIFGORqWHJhE9Luxg';
 const CMC_API_KEY = 'd0fb14c7-6905-4d42-8aa8-0558bfaea824';
+const PORT = process.env.PORT || 3000;
+const WEBHOOK_URL = process.env.WEBHOOK_URL || 'https://new-test-bot-2hjw.onrender.com';
 
 // Create bot
 const bot = new Telegraf(TELEGRAM_BOT_TOKEN);
@@ -13,7 +16,6 @@ const activeUsers = new Set();
 
 // ---------- FETCH FUNCTIONS ----------
 
-// Fetch overall market data
 async function fetchMarketOverview() {
   try {
     const res = await axios.get('https://pro-api.coinmarketcap.com/v1/global-metrics/quotes/latest', {
@@ -21,11 +23,11 @@ async function fetchMarketOverview() {
     });
     return res.data.data;
   } catch (err) {
+    console.error('Error fetching market overview:', err.message);
     return null;
   }
 }
 
-// Fetch specific coin by symbol
 async function fetchCoin(symbol) {
   try {
     const res = await axios.get('https://pro-api.coinmarketcap.com/v1/cryptocurrency/quotes/latest', {
@@ -34,6 +36,7 @@ async function fetchCoin(symbol) {
     });
     return res.data.data[symbol.toUpperCase()];
   } catch (err) {
+    console.error(`Error fetching ${symbol}:`, err.message);
     return null;
   }
 }
@@ -62,7 +65,6 @@ function formatCoinMessage(coin, market) {
   msg += `🔄 Circulating Supply: ${c.circulating_supply ? Number(c.circulating_supply).toLocaleString() : 'N/A'}\n`;
   msg += `${trendEmoji} ${trendSign}${change24h.toFixed(2)}% ${trendEmoji}\n\n`;
 
-  // Overall market
   if (market) {
     msg += '💹 Crypto Market Overview\n';
     msg += `📊 Market Cap: $${Number(market.quote.USD.total_market_cap).toLocaleString()}\n`;
@@ -78,17 +80,14 @@ function formatCoinMessage(coin, market) {
 
 // ---------- BOT COMMANDS ----------
 
-// /start command
 bot.start(async (ctx) => {
   activeUsers.add(ctx.chat.id);
-  ctx.reply('Welcome! Use /btc, /eth, or /link to get specific coin data.');
-
-  // Optional: send default coin info (BTC)
+  ctx.reply('Welcome! Use /btc, /eth, or /link to get coin data.');
+  
   const [coin, market] = await Promise.all([fetchCoin('BTC'), fetchMarketOverview()]);
   ctx.reply(formatCoinMessage(coin, market));
 });
 
-// Commands for specific coins
 bot.command('btc', async (ctx) => {
   const [coin, market] = await Promise.all([fetchCoin('BTC'), fetchMarketOverview()]);
   ctx.reply(formatCoinMessage(coin, market));
@@ -119,8 +118,15 @@ setInterval(async () => {
     msg += formatCoinMessage(link, market);
     bot.telegram.sendMessage(chatId, msg);
   });
-}, 1000 * 60 * 60); // every 1 hour
+}, 1000 * 60 * 60);
 
-// ---------- LAUNCH BOT ----------
-bot.launch();
-console.log('Telegram bot launched.');
+// ---------- WEBHOOK SETUP FOR RENDER ----------
+const app = express();
+app.use(bot.webhookCallback('/'));
+
+app.get('/', (req, res) => res.send('Bot is running'));
+app.listen(PORT, async () => {
+  console.log(`Server running on port ${PORT}`);
+  await bot.telegram.setWebhook(`${WEBHOOK_URL}/`);
+  console.log('Webhook set:', `${WEBHOOK_URL}/`);
+});
