@@ -47,18 +47,18 @@ async function fetchCoin(symbol) {
 async function getMarketClockAPI() {
   // ---------- STOCK MARKETS ----------
   const stockMarkets = [
-    { name: 'Tokyo (JP)', timezone: 'Asia/Tokyo', open: 9, close: 15 },
-    { name: 'London (UK)', timezone: 'Europe/London', open: 9, close: 17 },
-    { name: 'New York (US)', timezone: 'America/New_York', open: 9, close: 17 },
-    { name: 'Australia (ASX)', timezone: 'Australia/Sydney', open: 10, close: 16 }
+    { name: 'Tokyo', timezone: 'Asia/Tokyo', open: 9, close: 15 },
+    { name: 'London', timezone: 'Europe/London', open: 9, close: 17 },
+    { name: 'NY', timezone: 'America/New_York', open: 9, close: 17 },
+    { name: 'ASX', timezone: 'Australia/Sydney', open: 10, close: 16 }
   ];
 
   // ---------- FOREX MARKETS ----------
   const forexMarkets = [
-    { name: 'Tokyo (JP)', timezone: 'Asia/Tokyo', open: 9, close: 18 },
-    { name: 'London (UK)', timezone: 'Europe/London', open: 8, close: 17 },
-    { name: 'New York (US)', timezone: 'America/New_York', open: 8, close: 17 },
-    { name: 'Sydney (AU)', timezone: 'Australia/Sydney', open: 7, close: 16 }
+    { name: 'Tokyo', timezone: 'Asia/Tokyo', open: 9, close: 18 },
+    { name: 'London', timezone: 'Europe/London', open: 8, close: 17 },
+    { name: 'NY', timezone: 'America/New_York', open: 8, close: 17 },
+    { name: 'Sydney', timezone: 'Australia/Sydney', open: 7, close: 16 }
   ];
 
   const formatMarkets = (markets) => {
